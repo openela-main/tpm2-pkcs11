@@ -1,0 +1,158 @@
+From f633526b34c052514f3739cb1e08fdac38603eea Mon Sep 17 00:00:00 2001
+From: William Roberts <william.c.roberts@intel.com>
+Date: Wed, 5 May 2021 11:52:23 -0500
+Subject: [PATCH 2/6] utils: fix stringop-overread in str_padded_copy
+
+cc1: all warnings being treated as errors
+| make: *** [Makefile:1953: src/lib/slot.lo] Error 1
+| make: *** Waiting for unfinished jobs....
+| In file included from src/lib/mutex.h:10,
+| from src/lib/session_ctx.h:6,
+| from src/lib/digest.h:13,
+| from src/lib/tpm.c:28:
+| In function 'str_padded_copy',
+| inlined from 'tpm_get_token_info' at src/lib/tpm.c:742:5:
+| src/lib/utils.h:42:5: error: 'strnlen' specified bound 32 exceeds source size 5 [-Werror=stringop-overread]
+| 42 | memcpy(dst, src, strnlen((char *)(src), dst_len));
+| | ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+| src/lib/utils.h: In function 'tpm_get_token_info':
+| src/lib/tpm.c:739:19: note: source object declared here
+| 739 | unsigned char manufacturerID[sizeof(UINT32)+1] = {0}; // 4 bytes + '\0' as temp storage
+| | ^~~~~~~~~~~~~~
+| cc1: all warnings being treated as errors
+| make: *** [Makefile:1953: src/lib/tpm.lo] Error 1
+| WARNING: exit code 1 from a shell command.
+
+Fixes #676
+
+Signed-off-by: William Roberts <william.c.roberts@intel.com>
+---
+ src/lib/general.c | 8 ++++----
+ src/lib/general.h | 2 +-
+ src/lib/slot.c    | 4 ++--
+ src/lib/token.c   | 4 ++--
+ src/lib/tpm.c     | 7 +++----
+ src/lib/utils.h   | 6 ++++--
+ 6 files changed, 16 insertions(+), 15 deletions(-)
+
+diff --git a/src/lib/general.c b/src/lib/general.c
+index 9b7327c..eaddaf8 100644
+--- a/src/lib/general.c
++++ b/src/lib/general.c
+@@ -19,8 +19,8 @@
+   #define VERSION "UNKNOWN"
+ #endif
+ 
+-#define LIBRARY_DESCRIPTION (CK_UTF8CHAR_PTR)"TPM2.0 Cryptoki"
+-#define LIBRARY_MANUFACTURER (CK_UTF8CHAR_PTR)"tpm2-software.github.io"
++static const CK_UTF8CHAR LIBRARY_DESCRIPTION[] = "TPM2.0 Cryptoki";
++static const CK_UTF8CHAR LIBRARY_MANUFACTURER[] = "tpm2-software.github.io";
+ 
+ #define CRYPTOKI_VERSION { \
+            .major = CRYPTOKI_VERSION_MAJOR, \
+@@ -78,8 +78,8 @@ CK_RV general_get_info(CK_INFO *info) {
+ 
+     static CK_INFO *_info = NULL;
+     if (!_info) {
+-        str_padded_copy(_info_.manufacturerID, LIBRARY_MANUFACTURER, sizeof(_info_.manufacturerID));
+-        str_padded_copy(_info_.libraryDescription, LIBRARY_DESCRIPTION, sizeof(_info_.libraryDescription));
++        str_padded_copy(_info_.manufacturerID, LIBRARY_MANUFACTURER);
++        str_padded_copy(_info_.libraryDescription, LIBRARY_DESCRIPTION);
+ 
+         parse_lib_version(&_info_.libraryVersion.major,
+                 &_info_.libraryVersion.minor);
+diff --git a/src/lib/general.h b/src/lib/general.h
+index 14a18e4..356c142 100644
+--- a/src/lib/general.h
++++ b/src/lib/general.h
+@@ -10,7 +10,7 @@
+ #define TPM2_TOKEN_LABEL                "TPM2 PKCS#11 Token"
+ #define TPM2_TOKEN_MANUFACTURER         "Intel"
+ #define TPM2_TOKEN_MODEL                "TPM2 PKCS#11"
+-#define TPM2_TOKEN_SERIAL_NUMBER        "0000000000000000"
++static const CK_UTF8CHAR TPM2_TOKEN_SERIAL_NUMBER[] = "0000000000000000";
+ #define TPM2_TOKEN_HW_VERSION           { 0, 0 }
+ #define TPM2_TOKEN_FW_VERSION           { 0, 0 }
+ 
+diff --git a/src/lib/slot.c b/src/lib/slot.c
+index 548d22b..6db5bb9 100644
+--- a/src/lib/slot.c
++++ b/src/lib/slot.c
+@@ -119,8 +119,8 @@ CK_RV slot_get_info (CK_SLOT_ID slot_id, CK_SLOT_INFO *info) {
+         return CKR_GENERAL_ERROR;
+     }
+ 
+-    str_padded_copy(info->manufacturerID, token_info.manufacturerID, sizeof(info->manufacturerID));
+-    str_padded_copy(info->slotDescription, token_info.label, sizeof(info->slotDescription));
++    str_padded_copy(info->manufacturerID, token_info.manufacturerID);
++    str_padded_copy(info->slotDescription, token_info.label);
+ 
+     info->hardwareVersion = token_info.hardwareVersion;
+     info->firmwareVersion = token_info.firmwareVersion;
+diff --git a/src/lib/token.c b/src/lib/token.c
+index 6d7ebd2..c721129 100644
+--- a/src/lib/token.c
++++ b/src/lib/token.c
+@@ -317,8 +317,8 @@ CK_RV token_get_info (token *t, CK_TOKEN_INFO *info) {
+     }
+ 
+     // Identification
+-    str_padded_copy(info->label, t->label, sizeof(info->label));
+-    str_padded_copy(info->serialNumber, (unsigned char*) TPM2_TOKEN_SERIAL_NUMBER, sizeof(info->serialNumber));
++    str_padded_copy(info->label, t->label);
++    str_padded_copy(info->serialNumber, TPM2_TOKEN_SERIAL_NUMBER);
+ 
+ 
+     // Memory: TODO not sure what memory values should go here, the platform?
+diff --git a/src/lib/tpm.c b/src/lib/tpm.c
+index 1639df4..7f9f052 100644
+--- a/src/lib/tpm.c
++++ b/src/lib/tpm.c
+@@ -740,15 +740,14 @@ CK_RV tpm_get_token_info (tpm_ctx *ctx, CK_TOKEN_INFO *info) {
+     unsigned char manufacturerID[sizeof(UINT32)+1] = {0}; // 4 bytes + '\0' as temp storage
+     UINT32 manufacturer = ntohl(tpmProperties[TPM2_PT_MANUFACTURER - TPM2_PT_FIXED].value);
+     memcpy(manufacturerID, (unsigned char*) &manufacturer, sizeof(uint32_t));
+-    str_padded_copy(info->manufacturerID, manufacturerID, sizeof(info->manufacturerID));
++    str_padded_copy(info->manufacturerID, manufacturerID);
+ 
+     // Map human readable Manufacturer String, if available,
+     // otherwise 4 byte ID was already padded and will be used.
+     for (unsigned int i=0; i < ARRAY_LEN(TPM2_MANUFACTURER_MAP); i++){
+         if (!strncasecmp((char *)info->manufacturerID, TPM2_MANUFACTURER_MAP[i][0], 4)) {
+             str_padded_copy(info->manufacturerID,
+-                            (unsigned char *)TPM2_MANUFACTURER_MAP[i][1],
+-                            sizeof(info->manufacturerID));
++                            (unsigned char *)TPM2_MANUFACTURER_MAP[i][1]);
+         }
+     }
+ 
+@@ -758,7 +757,7 @@ CK_RV tpm_get_token_info (tpm_ctx *ctx, CK_TOKEN_INFO *info) {
+     vendor[1] = ntohl(tpmProperties[TPM2_PT_VENDOR_STRING_2 - TPM2_PT_FIXED].value);
+     vendor[2] = ntohl(tpmProperties[TPM2_PT_VENDOR_STRING_3 - TPM2_PT_FIXED].value);
+     vendor[3] = ntohl(tpmProperties[TPM2_PT_VENDOR_STRING_4 - TPM2_PT_FIXED].value);
+-    str_padded_copy(info->model, (unsigned char*) &vendor, sizeof(info->model));
++    str_padded_copy(info->model, (unsigned char*) &vendor);
+ 
+     return CKR_OK;
+ }
+diff --git a/src/lib/utils.h b/src/lib/utils.h
+index 81c61fa..cf35746 100644
+--- a/src/lib/utils.h
++++ b/src/lib/utils.h
+@@ -39,9 +39,11 @@
+ 
+ int str_to_ul(const char *val, size_t *res);
+ 
+-static inline void str_padded_copy(CK_UTF8CHAR_PTR dst, const CK_UTF8CHAR_PTR src, size_t dst_len) {
++#define str_padded_copy(dst, src) _str_padded_copy(dst, sizeof(dst), src, strnlen((const char *)src, sizeof(src)))
++static inline void _str_padded_copy(CK_UTF8CHAR_PTR dst, size_t dst_len, const CK_UTF8CHAR *src, size_t src_len) {
+     memset(dst, ' ', dst_len);
+-    memcpy(dst, src, strnlen((char *)(src), dst_len));
++    memcpy(dst, src, src_len);
++    LOGE("BILL(%zu): %.*s\n", dst_len, dst_len, dst);
+ }
+ 
+ twist utils_hash_pass(const twist pin, const twist salt);
+-- 
+2.38.1
+

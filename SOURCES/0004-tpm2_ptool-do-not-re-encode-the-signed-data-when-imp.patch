@@ -1,0 +1,188 @@
+From 5bf5d6c22b9461321cec9ddeaae5795a5465bb03 Mon Sep 17 00:00:00 2001
+From: Nicolas Iooss <nicolas.iooss@ledger.fr>
+Date: Thu, 23 Sep 2021 21:34:03 +0200
+Subject: [PATCH 4/6] tpm2_ptool: do not re-encode the signed data when
+ importing a certificate
+
+When using `tpm2_ptool addcert`, several users experienced issues
+because the signed data of the certificate was re-encoded when being
+added to the database. More precisely, the encoded certificate data is
+encoded using a BER encoder which encodes booleans using 1 of True (cf.
+https://github.com/etingof/pyasn1/blob/v0.4.8/pyasn1/codec/ber/encoder.py#L164
+). But in DER, the encoding of "True" is 0xff, and changing the signed
+data made the signature of the certificate no longer valid.
+
+To fix this issue:
+
+- Directly use the result of `pem.readPemFromFile(f)` in attribute
+  `CKA_VALUE`: this is directly the encoded form of the certificate.
+- Remove `pyasn1.codec.ber`, as this encoder is no longer used.
+- Rename the DER decoder from `decoder` to `derdecoder` and the encoder
+  from `derenc` to `derencoder`, to make the code easier to read.
+
+While at it:
+
+- Reindent the code to 4-space indentation
+- Use `hashlib.sha1(bercert).digest()` directly to compute a SHA1
+  digest, instead of using `m.update()`.
+
+Fixes: https://github.com/tpm2-software/tpm2-pkcs11/issues/700
+Signed-off-by: Nicolas Iooss <nicolas.iooss@ledger.fr>
+---
+ tools/tpm2_pkcs11/utils.py | 126 ++++++++++++++++++-------------------
+ 1 file changed, 60 insertions(+), 66 deletions(-)
+
+diff --git a/tools/tpm2_pkcs11/utils.py b/tools/tpm2_pkcs11/utils.py
+index b803f4c..91eab9a 100644
+--- a/tools/tpm2_pkcs11/utils.py
++++ b/tools/tpm2_pkcs11/utils.py
+@@ -15,9 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import (rsa, padding)
+ from cryptography.hazmat.primitives import hashes
+ 
+ from pyasn1_modules import pem, rfc2459
+-from pyasn1.codec.der import decoder
+-from pyasn1.codec.ber import encoder as berenc
+-from pyasn1.codec.der import encoder as derenc
++from pyasn1.codec.der import decoder as derdecoder, encoder as derencoder
+ from pyasn1.type import namedtype, tag, univ
+ 
+ from .pkcs11t import *  # noqa
+@@ -247,68 +245,64 @@ def asn1_format_ec_point_uncompressed(x, y):
+     return s
+ 
+ def pemcert_to_attrs(certpath):
+-            # rather than use pycryptography x509 parser, which gives native type access to certificate
+-        # fields use pyASN1 to get raw ASN1 encoded values for the fields as the spec requires them
+-        with open(certpath, "r") as f:
+-            substrate = pem.readPemFromFile(f)
+-            cert = decoder.decode(substrate, asn1Spec=rfc2459.Certificate())[0]
+-
+-        c = cert['tbsCertificate']
+-
+-        # print(cert.prettyPrint())
+-
+-        h = binascii.hexlify
+-        b = berenc.encode
+-        d = derenc.encode
+-
+-        bercert = b(cert)
+-        hexbercert = h(bercert).decode()
+-
+-        # the CKA_CHECKSUM attrs is the first 3 bytes of a sha1hash
+-        m = hashlib.sha1()
+-        m.update(bercert)
+-        bercertchecksum = m.digest()[0:3]
+-        hexbercertchecksum = h(bercertchecksum).decode()
+-
+-        subj = c['subject']
+-        hexsubj = h(d(str2bytes(subj))).decode()
+-
+-        issuer = c['issuer']
+-        hexissuer = h(d(str2bytes(issuer))).decode()
+-
+-        serial = c['serialNumber']
+-        hexserial = h(d(str2bytes(serial))).decode()
+-
+-        return {
+-            # The attrs of this attribute is derived by taking the first 3 bytes of the CKA_VALUE
+-            # field.
+-            CKA_CHECK_VALUE: hexbercertchecksum,
+-            # Start date for the certificate (default empty)
+-            CKA_START_DATE : "",
+-            # End date for the certificate (default empty)
+-            CKA_END_DATE : "",
+-            # DER-encoding of the SubjectPublicKeyInfo for the public key
+-            # contained in this certificate (default empty)
+-            CKA_PUBLIC_KEY_INFO : "",
+-            # DER encoded subject
+-            CKA_SUBJECT : hexsubj,
+-            # DER encoding of issuer
+-            CKA_ISSUER : hexissuer,
+-            # DER encoding of the cert serial
+-            CKA_SERIAL_NUMBER : hexserial,
+-            # BER encoding of the certificate
+-            CKA_VALUE : hexbercert,
+-            # RFC2279 string to URL where cert can be found, default empty
+-            CKA_URL : '',
+-            # hash of pub key subj, default empty
+-            CKA_HASH_OF_SUBJECT_PUBLIC_KEY : '',
+-            # Hash of pub key, default empty
+-            CKA_HASH_OF_ISSUER_PUBLIC_KEY : '',
+-            # Java security domain, default CK_SECURITY_DOMAIN_UNSPECIFIED
+-            CKA_JAVA_MIDP_SECURITY_DOMAIN : CK_SECURITY_DOMAIN_UNSPECIFIED,
+-            # Name hash algorithm, defaults to SHA1
+-            CKA_NAME_HASH_ALGORITHM : CKM_SHA_1
+-        }
++    # rather than using pycryptography x509 parser, which gives native type access to certificate
++    # fields use pyASN1 to get raw ASN1 encoded values for the fields as the spec requires them
++    with open(certpath, "r") as f:
++        bercert = pem.readPemFromFile(f)
++
++    cert = derdecoder.decode(bercert, asn1Spec=rfc2459.Certificate())[0]
++    c = cert['tbsCertificate']
++
++    # print(cert.prettyPrint())
++
++    h = binascii.hexlify
++    d = derencoder.encode
++
++    hexbercert = h(bercert).decode()
++
++    # the CKA_CHECKSUM attrs is the first 3 bytes of a sha1hash
++    bercertchecksum = hashlib.sha1(bercert).digest()[0:3]
++    hexbercertchecksum = h(bercertchecksum).decode()
++
++    subj = c['subject']
++    hexsubj = h(d(str2bytes(subj))).decode()
++
++    issuer = c['issuer']
++    hexissuer = h(d(str2bytes(issuer))).decode()
++
++    serial = c['serialNumber']
++    hexserial = h(d(str2bytes(serial))).decode()
++
++    return {
++        # The attrs of this attribute is derived by taking the first 3 bytes of the CKA_VALUE
++        # field.
++        CKA_CHECK_VALUE: hexbercertchecksum,
++        # Start date for the certificate (default empty)
++        CKA_START_DATE: "",
++        # End date for the certificate (default empty)
++        CKA_END_DATE: "",
++        # DER-encoding of the SubjectPublicKeyInfo for the public key
++        # contained in this certificate (default empty)
++        CKA_PUBLIC_KEY_INFO: "",
++        # DER encoded subject
++        CKA_SUBJECT: hexsubj,
++        # DER encoding of issuer
++        CKA_ISSUER: hexissuer,
++        # DER encoding of the cert serial
++        CKA_SERIAL_NUMBER: hexserial,
++        # BER encoding of the certificate
++        CKA_VALUE: hexbercert,
++        # RFC2279 string to URL where cert can be found, default empty
++        CKA_URL: '',
++        # hash of pub key subj, default empty
++        CKA_HASH_OF_SUBJECT_PUBLIC_KEY: '',
++        # Hash of pub key, default empty
++        CKA_HASH_OF_ISSUER_PUBLIC_KEY: '',
++        # Java security domain, default CK_SECURITY_DOMAIN_UNSPECIFIED
++        CKA_JAVA_MIDP_SECURITY_DOMAIN: CK_SECURITY_DOMAIN_UNSPECIFIED,
++        # Name hash algorithm, defaults to SHA1
++        CKA_NAME_HASH_ALGORITHM: CKM_SHA_1
++    }
+ 
+ def _pkcs11_to_str(value, prefix):
+ 
+@@ -407,7 +401,7 @@ def asn1parse_tss_key(keypath):
+         if len(substrate) == 0:
+             sys.exit('Did not find key in tss key file: {}'.format(keypath))
+ 
+-        tss2_privkey, _ = decoder.decode(substrate, asn1Spec=TSSPrivKey())
++        tss2_privkey, _ = derdecoder.decode(substrate, asn1Spec=TSSPrivKey())
+ 
+         return tss2_privkey
+ 
+-- 
+2.38.1
+

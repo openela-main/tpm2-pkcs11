@@ -1,0 +1,43 @@
+From fc21b98dced2c78f90f917c1a45a28184024d604 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C5=A0t=C4=9Bp=C3=A1n=20Hor=C3=A1=C4=8Dek?=
+ <shoracek@redhat.com>
+Date: Tue, 6 Sep 2022 16:54:33 +0200
+Subject: [PATCH 1/6] Backup with sqlite3 special command
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Upstream uses method introduced in Python 3.7, but RHEL 8 uses
+Python 3.6. This means that the method is not available and using the
+command line interface seems to be the simplest solution.
+
+Signed-off-by: Štěpán Horáček <shoracek@redhat.com>
+---
+ tools/tpm2_pkcs11/db.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/tools/tpm2_pkcs11/db.py b/tools/tpm2_pkcs11/db.py
+index 7971028..1b18b8f 100644
+--- a/tools/tpm2_pkcs11/db.py
++++ b/tools/tpm2_pkcs11/db.py
+@@ -6,6 +6,7 @@ import sys
+ import sqlite3
+ import textwrap
+ import yaml
++import subprocess
+ 
+ from .pkcs11t import (
+     CKA_ALLOWED_MECHANISMS,
+@@ -258,8 +259,8 @@ class Db(object):
+         if os.path.exists(dbpath):
+             raise RuntimeError("Backup DB exists at {} not overwriting. "
+                 "Refusing to run".format(dbpath))
++        subprocess.run(["sqlite3", self._path, ".backup {}".format(dbpath)])
+         bck = sqlite3.connect(dbpath)
+-        con.backup(bck)
+         return (bck, dbpath)
+ 
+     def _update_on_2(self, dbbakcon):
+-- 
+2.38.1
+

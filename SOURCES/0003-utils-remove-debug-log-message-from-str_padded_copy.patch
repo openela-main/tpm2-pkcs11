@@ -1,0 +1,30 @@
+From ad882c439cc6580837196bab5fd82599685d84e0 Mon Sep 17 00:00:00 2001
+From: Nicolas Iooss <nicolas.iooss@ledger.fr>
+Date: Thu, 20 May 2021 16:03:20 +0200
+Subject: [PATCH 3/6] utils: remove debug log message from str_padded_copy
+
+Commit 9af101b54035 ("utils: fix stringop-overread in str_padded_copy")
+introduced a log message which is displayed every time the function
+`str_padded_copy` is used. This looks like a debug message used while
+working on the patch. Now that it is applied, remove the log message.
+
+Signed-off-by: Nicolas Iooss <nicolas.iooss@ledger.fr>
+---
+ src/lib/utils.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/lib/utils.h b/src/lib/utils.h
+index cf35746..983da06 100644
+--- a/src/lib/utils.h
++++ b/src/lib/utils.h
+@@ -43,7 +43,6 @@ int str_to_ul(const char *val, size_t *res);
+ static inline void _str_padded_copy(CK_UTF8CHAR_PTR dst, size_t dst_len, const CK_UTF8CHAR *src, size_t src_len) {
+     memset(dst, ' ', dst_len);
+     memcpy(dst, src, src_len);
+-    LOGE("BILL(%zu): %.*s\n", dst_len, dst_len, dst);
+ }
+ 
+ twist utils_hash_pass(const twist pin, const twist salt);
+-- 
+2.38.1
+
