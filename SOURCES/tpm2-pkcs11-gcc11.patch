@@ -1,0 +1,51 @@
+diff --git a/src/lib/slot.c b/src/lib/slot.c
+index b3c7c82..f0a4f2e 100644
+--- a/src/lib/slot.c
++++ b/src/lib/slot.c
+@@ -120,7 +120,9 @@ CK_RV slot_get_info (CK_SLOT_ID slot_id, CK_SLOT_INFO *info) {
+     }
+ 
+     str_padded_copy(info->manufacturerID, token_info.manufacturerID, sizeof(info->manufacturerID));
+-    str_padded_copy(info->slotDescription, token_info.label, sizeof(info->slotDescription));
++    size_t to_copy = sizeof (token_info.label);
++    to_copy = (to_copy > sizeof (info->slotDescription)) ? sizeof (info->slotDescription) : to_copy;
++    str_padded_copy(info->slotDescription, token_info.label, to_copy);
+ 
+     info->hardwareVersion = token_info.hardwareVersion;
+     info->firmwareVersion = token_info.firmwareVersion;
+diff --git a/src/lib/tpm.c b/src/lib/tpm.c
+index 90fb3c3..1bce3ac 100644
+--- a/src/lib/tpm.c
++++ b/src/lib/tpm.c
+@@ -732,7 +732,9 @@ CK_RV tpm_get_token_info (tpm_ctx *ctx, CK_TOKEN_INFO *info) {
+     unsigned char manufacturerID[sizeof(UINT32)+1] = {0}; // 4 bytes + '\0' as temp storage
+     UINT32 manufacturer = ntohl(tpmProperties[TPM2_PT_MANUFACTURER - TPM2_PT_FIXED].value);
+     memcpy(manufacturerID, (unsigned char*) &manufacturer, sizeof(uint32_t));
+-    str_padded_copy(info->manufacturerID, manufacturerID, sizeof(info->manufacturerID));
++    size_t to_copy = sizeof (manufacturerID);
++    to_copy = (to_copy > sizeof (info->manufacturerID)) ? sizeof (info->manufacturerID) : to_copy;
++    str_padded_copy(info->manufacturerID, manufacturerID, to_copy);
+ 
+     // Map human readable Manufacturer String, if available,
+     // otherwise 4 byte ID was already padded and will be used.
+diff --git a/test/unit/test_twist.c b/test/unit/test_twist.c
+index ec66f69..54ec883 100644
+--- a/test/unit/test_twist.c
++++ b/test/unit/test_twist.c
+@@ -311,6 +311,8 @@ void test_twistbin_aappend_null_array(void **state) {
+ }
+ 
+ void test_twistbin_aappend_twist_null(void **state) {
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wstringop-overflow="
+     (void) state;
+ 
+ 	twist expected = twist_new("foo");
+@@ -322,6 +324,7 @@ void test_twistbin_aappend_twist_null(void **state) {
+ 	assert_ptr_equal((void * )actual, (void * )expected);
+ 
+ 	twist_free(actual);
++#pragma GCC diagnostic pop
+ }
+ 
+ void test_twistbin_create_null(void **state) {
