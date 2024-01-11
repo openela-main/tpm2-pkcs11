@@ -1,0 +1,37 @@
+From 1d28d6eee8c1b02a900810e6f1e4582e1c4381a5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C5=A0t=C4=9Bp=C3=A1n=20Hor=C3=A1=C4=8Dek?=
+ <shoracek@redhat.com>
+Date: Wed, 12 Oct 2022 15:50:33 +0200
+Subject: [PATCH 6/6] db: fix upgrade to version 4
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+During upgrade of the database from version 3 to version 4, parameter
+'persistent' was used, although everywhere else the opposite 'transient'
+is used. This causes KeyError: 'transient' when using the upgraded
+database.
+
+This commit fixes this by adding 'transient' during upgrade instead.
+
+Signed-off-by: Štěpán Horáček <shoracek@redhat.com>
+---
+ tools/tpm2_pkcs11/db.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/tpm2_pkcs11/db.py b/tools/tpm2_pkcs11/db.py
+index d0a526b..01ab298 100644
+--- a/tools/tpm2_pkcs11/db.py
++++ b/tools/tpm2_pkcs11/db.py
+@@ -380,7 +380,7 @@ class Db(object):
+             hexblob = bytes.hex(blob)
+ 
+             config = {
+-                'persistent' : True,
++                'transient': False,
+                 'esys-tr': hexblob
+             }
+ 
+-- 
+2.38.1
+
